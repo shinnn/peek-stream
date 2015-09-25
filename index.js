@@ -1,7 +1,5 @@
 var duplexify = require('duplexify')
-var through = require('through2')
-
-var noop = function() {}
+var Transform = require('readable-stream/transform')
 
 var isObject = function(data) {
   return !Buffer.isBuffer(data) && typeof data !== 'string'
@@ -20,26 +18,30 @@ var peek = function(opts, onpeek) {
   var bufferSize = 0
   var dup = duplexify.obj()
 
-  var peeker = through.obj({highWaterMark:1}, function(data, enc, cb) {
-    if (isObject(data)) return ready(data, null, cb)
-    if (!Buffer.isBuffer(data)) data = new Buffer(data)
+  var peeker = new Transform({
+    objectMode: true,
+    highWaterMark: 1,
+    transform: function(data, enc, cb) {
+      if (isObject(data)) return ready(data, null, cb)
+      if (!Buffer.isBuffer(data)) data = new Buffer(data)
 
-    if (newline) {
-      var nl = Array.prototype.indexOf.call(data, 10)
-      if (nl > 0 && data[nl-1] === 13) nl--
+      if (newline) {
+        var nl = Array.prototype.indexOf.call(data, 10)
+        if (nl > 0 && data[nl-1] === 13) nl--
 
-      if (nl > -1) {
-        buffer.push(data.slice(0, nl))
-        return ready(Buffer.concat(buffer), data.slice(nl), cb)
+        if (nl > -1) {
+          buffer.push(data.slice(0, nl))
+          return ready(Buffer.concat(buffer), data.slice(nl), cb)
+        }
       }
+
+      buffer.push(data)
+      bufferSize += data.length
+
+      if (bufferSize < maxBuffer) return cb()
+      if (strict) return cb(new Error('No newline found'))
+      ready(Buffer.concat(buffer), null, cb)
     }
-
-    buffer.push(data)
-    bufferSize += data.length
-
-    if (bufferSize < maxBuffer) return cb()
-    if (strict) return cb(new Error('No newline found'))
-    ready(Buffer.concat(buffer), null, cb)
   })
 
   var onpreend = function() {
